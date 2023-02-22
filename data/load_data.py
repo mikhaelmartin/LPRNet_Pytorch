@@ -36,7 +36,8 @@ class LPRDataLoader(Dataset):
 
     def __getitem__(self, index):
         filename = self.img_paths[index]
-        Image = cv2.imread(filename)
+        # Image = cv2.imread(filename)
+        Image = cv2.imdecode(np.fromfile(filename, dtype=np.uint8),-1)
         height, width, _ = Image.shape
         if height != self.img_size[1] or width != self.img_size[0]:
             Image = cv2.resize(Image, self.img_size)
