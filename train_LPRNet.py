@@ -6,6 +6,7 @@ Pytorch implementation for LPRNet.
 Author: aiboy.wei@outlook.com .
 '''
 
+from utils.utils import collate_fn, Greedy_Decode_Eval
 from data.load_data import CHARS, CHARS_DICT, LPRDataLoader
 from model.LPRNet import build_lprnet
 # import torch.backends.cudnn as cudnn
@@ -50,16 +51,16 @@ def get_parser():
     parser = argparse.ArgumentParser(description='parameters to train net')
     parser.add_argument('--max_epoch', default=15, type=int, help='epoch to train the network')
     parser.add_argument('--img_size', default=[94, 24], nargs='+', type=int, help='the image size')
-    parser.add_argument('--train_img_dirs', default="~/workspace/trainMixLPR", help='the train images path')
-    parser.add_argument('--test_img_dirs', default="~/workspace/testMixLPR", help='the test images path')
+    parser.add_argument('--train_img_dirs', default="./data/train", help='the train images path')
+    parser.add_argument('--test_img_dirs', default="./data/test", help='the test images path')
     parser.add_argument('--dropout_rate', default=0.5, type=float, help='dropout rate.')
     parser.add_argument('--learning_rate', default=0.1, type=float, help='base value of learning rate.')
     parser.add_argument('--lpr_max_len', default=8, type=int, help='license plate number max length.')
     parser.add_argument('--train_batch_size', default=128, type=int, help='training batch size.')
     parser.add_argument('--test_batch_size', default=120,type=int, help='testing batch size.')
-    parser.add_argument('--phase_train', default=True, type=bool, help='train or test phase flag.')
+    # parser.add_argument('--phase_train', default=False, action='store_true', help='train or test phase flag.')
     parser.add_argument('--num_workers', default=8, type=int, help='Number of workers used in dataloading')
-    parser.add_argument('--cuda', default=True, type=bool, help='Use cuda to train model')
+    parser.add_argument('--cuda', default=False, action='store_true', help='Use cuda to train model')
     parser.add_argument('--resume_epoch', default=0, type=int, help='resume iter for retraining')
     parser.add_argument('--save_interval', default=2000, type=int, help='interval for save model state dict')
     parser.add_argument('--test_interval', default=2000, type=int, help='interval for evaluate')
@@ -67,25 +68,14 @@ def get_parser():
     parser.add_argument('--weight_decay', default=2e-5, type=float, help='Weight decay for SGD')
     parser.add_argument('--lr_schedule', default=[4, 8, 12, 14, 16], nargs='+', type=int, help='schedule for learning rate.')
     parser.add_argument('--save_folder', default='./weights/', help='Location to save checkpoint models')
-    # parser.add_argument('--pretrained_model', default='./weights/Final_LPRNet_model.pth', help='pretrained base model')
-    parser.add_argument('--pretrained_model', default='', help='pretrained base model')
+    parser.add_argument('--save_name', default='New_Model.pth', help='Location to save checkpoint models')
+    parser.add_argument('--pretrained_model', default='./weights/Final_LPRNet_model.pth', help='pretrained base model')
+    # parser.add_argument('--pretrained_model', default='', help='pretrained base model')
 
     args = parser.parse_args()
 
     return args
 
-def collate_fn(batch):
-    imgs = []
-    labels = []
-    lengths = []
-    for _, sample in enumerate(batch):
-        img, label, length = sample
-        imgs.append(torch.from_numpy(img))
-        labels.extend(label)
-        lengths.append(length)
-    labels = np.asarray(labels).flatten().astype(np.int)
-
-    return (torch.stack(imgs, 0), torch.from_numpy(labels), lengths)
 
 def train():
     args = get_parser()
@@ -97,7 +87,7 @@ def train():
     if not os.path.exists(args.save_folder):
         os.mkdir(args.save_folder)
 
-    lprnet = build_lprnet(lpr_max_len=args.lpr_max_len, phase=args.phase_train, class_num=len(CHARS), dropout_rate=args.dropout_rate)
+    lprnet = build_lprnet(lpr_max_len=args.lpr_max_len, phase=True, class_num=len(CHARS), dropout_rate=args.dropout_rate)
     device = torch.device("cuda:0" if args.cuda else "cpu")
     lprnet.to(device)
     print("Successful to build network!")
@@ -155,7 +145,7 @@ def train():
             torch.save(lprnet.state_dict(), args.save_folder + 'LPRNet_' + '_iteration_' + repr(iteration) + '.pth')
 
         if (iteration + 1) % args.test_interval == 0:
-            Greedy_Decode_Eval(lprnet, test_dataset, args)
+            Greedy_Decode_Eval(lprnet, test_dataset, batch_size=args.test_batch_size, num_workers=args.num_workers, cuda=args.cuda)
             # lprnet.train() # should be switch to train mode
 
         start_time = time.time()
@@ -191,77 +181,15 @@ def train():
         optimizer.step()
         loss_val += loss.item()
         end_time = time.time()
-        if iteration % 20 == 0:
-            print('Epoch:' + repr(epoch) + ' || epochiter: ' + repr(iteration % epoch_size) + '/' + repr(epoch_size)
-                  + '|| Totel iter ' + repr(iteration) + ' || Loss: %.4f||' % (loss.item()) +
-                  'Batch time: %.4f sec. ||' % (end_time - start_time) + 'LR: %.8f' % (lr))
+        print('Epoch:' + repr(epoch) + ' || epochiter: ' + repr(iteration % epoch_size) + '/' + repr(epoch_size)
+                + '|| Totel iter ' + repr(iteration) + ' || Loss: %.4f||' % (loss.item()) +
+                'Batch time: %.4f sec. ||' % (end_time - start_time) + 'LR: %.8f' % (lr))
     # final test
     print("Final test Accuracy:")
-    Greedy_Decode_Eval(lprnet, test_dataset, args)
+    Greedy_Decode_Eval(lprnet, test_dataset, batch_size=args.test_batch_size, num_workers=args.num_workers, cuda=args.cuda)
 
     # save final parameters
-    torch.save(lprnet.state_dict(), args.save_folder + 'Final_LPRNet_model.pth')
-
-def Greedy_Decode_Eval(Net, datasets, args):
-    # TestNet = Net.eval()
-    epoch_size = len(datasets) // args.test_batch_size
-    batch_iterator = iter(DataLoader(datasets, args.test_batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=collate_fn))
-
-    Tp = 0
-    Tn_1 = 0
-    Tn_2 = 0
-    t1 = time.time()
-    for i in range(epoch_size):
-        # load train data
-        images, labels, lengths = next(batch_iterator)
-        start = 0
-        targets = []
-        for length in lengths:
-            label = labels[start:start+length]
-            targets.append(label)
-            start += length
-        targets = np.array([el.numpy() for el in targets])
-
-        if args.cuda:
-            images = Variable(images.cuda())
-        else:
-            images = Variable(images)
-
-        # forward
-        prebs = Net(images)
-        # greedy decode
-        prebs = prebs.cpu().detach().numpy()
-        preb_labels = list()
-        for i in range(prebs.shape[0]):
-            preb = prebs[i, :, :]
-            preb_label = list()
-            for j in range(preb.shape[1]):
-                preb_label.append(np.argmax(preb[:, j], axis=0))
-            no_repeat_blank_label = list()
-            pre_c = preb_label[0]
-            if pre_c != len(CHARS) - 1:
-                no_repeat_blank_label.append(pre_c)
-            for c in preb_label: # dropout repeate label and blank label
-                if (pre_c == c) or (c == len(CHARS) - 1):
-                    if c == len(CHARS) - 1:
-                        pre_c = c
-                    continue
-                no_repeat_blank_label.append(c)
-                pre_c = c
-            preb_labels.append(no_repeat_blank_label)
-        for i, label in enumerate(preb_labels):
-            if len(label) != len(targets[i]):
-                Tn_1 += 1
-                continue
-            if (np.asarray(targets[i]) == np.asarray(label)).all():
-                Tp += 1
-            else:
-                Tn_2 += 1
-
-    Acc = Tp * 1.0 / (Tp + Tn_1 + Tn_2)
-    print("[Info] Test Accuracy: {} [{}:{}:{}:{}]".format(Acc, Tp, Tn_1, Tn_2, (Tp+Tn_1+Tn_2)))
-    t2 = time.time()
-    print("[Info] Test Speed: {}s 1/{}]".format((t2 - t1) / len(datasets), len(datasets)))
+    torch.save(lprnet.state_dict(), os.path.join(args.save_folder, args.save_name if args.save_name.endswith(".pth") else args.save_name + ".pth"))
 
 
 if __name__ == "__main__":

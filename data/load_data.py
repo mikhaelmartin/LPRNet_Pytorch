@@ -51,10 +51,10 @@ class LPRDataLoader(Dataset):
             # one_hot_base[CHARS_DICT[c]] = 1
             label.append(CHARS_DICT[c])
 
-        if len(label) == 8:
-            if self.check(label) == False:
-                print(imgname)
-                assert 0, "Error label ^~^!!!"
+        # if len(label) == 8:
+        #     if self.check(label) == False:
+        #         print(imgname)
+        #         assert 0, "Error label ^~^!!!"
 
         return Image, label, len(label)
 
@@ -66,10 +66,10 @@ class LPRDataLoader(Dataset):
 
         return img
 
-    def check(self, label):
-        if label[2] != CHARS_DICT['D'] and label[2] != CHARS_DICT['F'] \
-                and label[-1] != CHARS_DICT['D'] and label[-1] != CHARS_DICT['F']:
-            print("Error label, Please check!")
-            return False
-        else:
-            return True
+    # def check(self, label):
+    #     if label[2] != CHARS_DICT['D'] and label[2] != CHARS_DICT['F'] \
+    #             and label[-1] != CHARS_DICT['D'] and label[-1] != CHARS_DICT['F']:
+    #         print("Error label, Please check!")
+    #         return False
+    #     else:
+    #         return True
